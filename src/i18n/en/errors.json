@@ -1,0 +1,21 @@
+{
+  "Invalid_API_Key": "Invalid App API Key provided.",
+  "Missing_API_Key": "API Key is missing in request. Make sure you're passing the API Key inside the 'x-api-key' header and it must not be blank.",
+  "Invalid_Ref_Id": "No user found with referenceId {referenceId} inside provided APP (API Key).",
+  "Invalid_Team_Id": "Make sure you provided a valid team Id",
+  "Invalid_Msg_Id": "Make sure you provided a valid Message Id",
+  "Message_Delete_Sender_Err": "Only message sender can delete the message.",
+  "App_Name_Exists": "An app with the name {appName} already exists in your account. Please use a different name.",
+  "Channel_Title_Exists": "A channel with the title {title} already exists in your app {appName} and team {team}. Please use a different name or if you want to allow duplicate title in channels, consider using duplicateTitleAllowed parameter with value true.",
+  "Email_Exists": "Email ID is already associated with an account. Please check the email or proceed to login.",
+  "User_Reference_Id_Exists": "You already have an User with the referenceId {refId} in your app {appName}. Please use a different referenceId, it must be unique within one App.",
+  "Invalid_Channel_Id": "No channel found with the provided channelId.",
+  "NotAdmin": "You are not the admin of the channel.",
+  "ParticipantAlreadyExists": "Participant already exists in the channel.",
+  "ParticipantDoesntExists": "Participant doesn't exists in the channel.",
+  "AdminAlreadyExists": "Admin already exists in the channel.",
+  "AdminDoesntExists": "Admin doesn't exists in the channel.",
+  "AdminMustParticipate": "An Admin to be added in channel, must be a participant first in the channel.",
+  "ChannelTypeOpNotAllowed": "This operation could not be performed on the given channel's type.",
+  "UnauthorizedChannelAccess": "Current user doesn't have access to the requested channel."
+}
