@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { IsOptional } from 'class-validator';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type MessageDocument = Message & Document;
@@ -12,8 +13,11 @@ export class Message {
   })
   sender: Types.ObjectId;
 
-  @Prop({ required: true })
+  @Prop({})
   content: string;
+
+  @Prop({ default: false })
+  isEdited: boolean;
 
   @Prop({ required: true, default: new Date() })
   createdAt: Date;
@@ -31,6 +35,10 @@ export class Message {
     required: true,
   })
   appId: Types.ObjectId;
+
+  @Prop({ default: [] })
+  @IsOptional()
+  attachments: string[];
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

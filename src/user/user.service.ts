@@ -1,12 +1,12 @@
-import { Injectable, HttpException } from '@nestjs/common';
-import { Model } from 'mongoose';
-import { InjectModel } from '@nestjs/mongoose';
-import { User, UserDocument } from './schemas/user.schema';
-import { ConnectUserDto } from './dto/connect-user.dto';
-import { UtilsService } from '../utils/utils.service';
-import { I18nService } from 'nestjs-i18n';
+import { HttpException, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { I18nService } from 'nestjs-i18n';
+import { UtilsService } from '../utils/utils.service';
+import { ConnectUserDto } from './dto/connect-user.dto';
 import { AppInfo, TokenPayload, UserInfo } from './info.type';
+import { User, UserDocument } from './schemas/user.schema';
 // const crypto = require('crypto');
 
 @Injectable()
@@ -63,6 +63,21 @@ export class UserService {
     }
   }
 
+  async setUserCurrentChannel(req: any, channelId: any) {
+    try {
+      const { user } = req;
+      await this.userModel.updateOne(
+        { id: user.appId },
+        { currentChannel: channelId },
+      );
+
+      return { message: 'updated' };
+    } catch (error) {
+      console.error('error', error);
+      throw new HttpException(error.message, 400);
+    }
+  }
+
   async getAllUsers(req: any, teamId: string): Promise<Array<User>> {
     try {
       if (teamId == null)
@@ -72,10 +87,9 @@ export class UserService {
         .find({
           appId: user.appId,
           teamId,
-          referenceId: { $ne: user.userReferenceId }, // Excluding the user who called the API.
+          referenceId: { $ne: String(user.userReferenceId) }, // Excluding the user who called the API.
         })
         .lean();
-
       return users;
     } catch (error) {
       throw new HttpException(error.message, 400);

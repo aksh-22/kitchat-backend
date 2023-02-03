@@ -8,7 +8,12 @@ import {
 } from '@nestjs/websockets';
 import { Logger } from '@nestjs/common';
 import { Socket, Server } from 'socket.io';
-import { CHANNEL_TYPE, EVENT_TYPE, EVENT_TYPE_ENUM } from './channel.enum';
+import {
+  CHANNEL_TYPE,
+  eventType,
+  EVENT_TYPE,
+  EVENT_TYPE_ENUM,
+} from './channel.enum';
 import { Channel } from './schemas/channel.schema';
 import e from 'express';
 
@@ -81,15 +86,34 @@ export class ChatGateway
     }
   }
 
-  channelDelete(id, channel) {
-    this.server.to(`USER-${id}`).emit('CHANNEL_DELETE', channel);
+  channelDelete(ids, channel) {
+    ids.forEach((el) => {
+      this.server.to(`USER-${el}`).emit('CHANNEL_DELETE', channel);
+    });
     this.server.off(`CHANNEL-${channel._id}`, () => {
       console.log('channel listener removed');
     });
   }
 
-  messageSent(channelId, message) {
-    this.server.to(`CHANNEL-${channelId}`).emit('MESSAGE_RECEIVED', message);
+  messageListener(channelId: string, message: any, type: eventType) {
+    switch (type) {
+      case 'ADDED':
+        this.server
+          .to(`CHANNEL-${channelId}`)
+          .emit('MESSAGE_RECEIVED', message);
+        break;
+
+      case 'DELETE':
+        this.server.to(`CHANNEL-${channelId}`).emit('MESSAGE_DELETE', message);
+        break;
+
+      case 'UPDATE':
+        this.server.to(`CHANNEL-${channelId}`).emit('MESSAGE_UPDATE', message);
+        break;
+
+      default:
+        break;
+    }
   }
 
   // channelMessageCount() {}

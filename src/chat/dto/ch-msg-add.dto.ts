@@ -1,11 +1,14 @@
-import { IsMongoId, IsNotEmpty, IsString } from 'class-validator';
+import { IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CHMessageAddDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   content: string;
 
   @IsNotEmpty()
   @IsMongoId()
   channelId: string;
+
+  @IsOptional()
+  attachments: [];
 }

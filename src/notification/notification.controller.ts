@@ -28,6 +28,7 @@ export class NotificationController {
   }
 
   @Delete(':id')
+  @UseGuards(ChatAuthGuard)
   remove(@Param('id') id: string, @Request() req) {
     return this.notificationService.removeUserNotificationIds(id, req);
   }

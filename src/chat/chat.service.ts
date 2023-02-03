@@ -1,24 +1,32 @@
-import { Injectable, HttpException, Request } from '@nestjs/common';
-import { Model, ObjectId, Types } from 'mongoose';
-import mongoose from 'mongoose';
+import {
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { Model, ObjectId, Types } from 'mongoose';
 import { Channel, ChannelDocument } from './schemas/channel.schema';
 
-import { Message, MessageDocument } from './schemas/message.schema';
-import { CHCreatePvtDto } from './dto/ch-create-pvt.dto';
-import { CHCreateDirectDto } from './dto/ch-create-direct.dto';
-import { CHPatchDto } from './dto/ch-patch.dto';
-import { CHParticipantAddDto } from './dto/ch-participant-add.dto';
+import { I18nService } from 'nestjs-i18n';
+import { NotificationService } from 'src/notification/notification.service';
+import { UserService } from '../user/user.service';
+import { EVENT_TYPE } from './channel.enum';
+import { ChatGateway } from './chat.gateway';
 import { CHAdminAddDto } from './dto/ch-admin-add.dto';
+import { CHCreateDirectDto } from './dto/ch-create-direct.dto';
+import { CHCreatePvtDto } from './dto/ch-create-pvt.dto';
 import { CHMessageAddDto } from './dto/ch-msg-add.dto';
 import { CHMessageRemoveDto } from './dto/ch-msg-remove.dto';
-import { I18nService } from 'nestjs-i18n';
-import { UserService } from '../user/user.service';
-import { ChatGateway } from './chat.gateway';
-import { EVENT_TYPE, EVENT_TYPE_ENUM } from './channel.enum';
+import { CHMessageUpdateDto } from './dto/ch-msg-update.dto';
+import { CHParticipantAddDto } from './dto/ch-participant-add.dto';
+import { CHPatchDto } from './dto/ch-patch.dto';
 import { ChMessageDto } from './dto/cha-message.dto';
-import { NotificationService } from 'src/notification/notification.service';
-import { NotificationDocument } from 'src/notification/schema/notification.schema';
+import { Message, MessageDocument } from './schemas/message.schema';
+import { UtilsService } from 'src/utils/utils.service';
+import * as imageThumbnail from 'image-thumbnail';
+import { CHUploadAttachments } from './dto/upload-attachments.dto';
 
 const CHANNEL_TYPE = {
   DIRECT: 'DIRECT',
@@ -37,6 +45,8 @@ export class ChatService {
     private readonly i18n: I18nService,
     private readonly userSvc: UserService,
     private readonly chatGateway: ChatGateway,
+    private readonly utilsService: UtilsService,
+    @InjectModel('User') readonly UserModule: Model<any>,
   ) {}
 
   async channelAggregator(filter) {
@@ -79,6 +89,7 @@ export class ChatService {
             lastUpdatedAt: 1,
             createdAt: 1,
             participantsDetails: 1,
+            mutedMembers: 1,
           },
         },
         {
@@ -200,6 +211,31 @@ export class ChatService {
     );
   }
 
+  async channelMuteHandler(req: any, channelId: string) {
+    const { user } = req;
+
+    await this.channelModel.updateOne({ _id: channelId }, [
+      {
+        $set: {
+          mutedMembers: {
+            $cond: [
+              { $in: [String(user.userId), '$mutedMembers'] },
+              {
+                $filter: {
+                  input: '$mutedMembers',
+                  as: 'userId',
+                  cond: { $ne: ['$$userId', user.userId] },
+                },
+              },
+              { $concatArrays: ['$mutedMembers', [user.userId]] },
+            ],
+          },
+        },
+      },
+    ]);
+    return { message: 'updated' };
+  }
+
   async channelCreatePublic(
     body: CHCreatePvtDto,
     req,
@@ -232,11 +268,13 @@ export class ChatService {
       }
 
       let participants = [];
+      let participantsDetails = [];
       let admins = [];
 
       if (channelType === CHANNEL_TYPE.CHANNEL_PRIVATE) {
         participants = [user.userId];
         admins = [user.userId];
+        participantsDetails = [{ id: user.userId, unread: 0 }];
       }
 
       if (channelType === CHANNEL_TYPE.CHANNEL_PUBLIC) {
@@ -248,10 +286,16 @@ export class ChatService {
           body.partnerReferenceId,
           user.appId,
         );
-        participants = [user.userId, partnerUser._id.toString()].sort();
+        const partnerUserId = partnerUser._id.toString();
+        participants = [user.userId, partnerUserId].sort();
+        participantsDetails = [
+          { id: user.userId, unread: 0 },
+          { id: partnerUserId, unread: 0 },
+        ];
         admins = [];
         const existingChannel = await this.channelModel.findOne({
           participants: participants,
+          participantsDetails,
           type: CHANNEL_TYPE.DIRECT,
           appId: user.appId,
           teamId: body.teamId == '' || body.teamId == null ? null : body.teamId,
@@ -265,6 +309,7 @@ export class ChatService {
         appId: user.appId,
         type: channelType,
         participants: participants,
+        participantsDetails,
         admins: admins,
         createdBy: user.userId,
         ...body,
@@ -369,17 +414,42 @@ export class ChatService {
       );
   }
 
+  async deleteChannel(req: any, channelId: string) {
+    const { user } = req;
+    const channel = await this.channelModel.findById(channelId);
+    const isAdmin = channel.admins.includes(user.userId);
+    if (isAdmin) {
+      await this.msgModel.deleteMany({ channelId });
+      await this.channelModel.findByIdAndDelete(channelId);
+      this.chatGateway.channelDelete(channel.participants, {
+        _id: channel._id,
+      });
+      return { message: 'Channel and its message delete' };
+    } else {
+      throw new UnauthorizedException();
+    }
+  }
+
   async channelParticipantAdd(
     body: CHParticipantAddDto,
     req: any,
   ): Promise<Channel> {
     const { user } = req;
+    const userDetails = await this.UserModule.findById(
+      body.participantId,
+    ).exec();
     const channel = await this.channelModel.findById(body.channelId);
     this.channelCheckValidAdminAccess(channel, user.userId);
     this.channelCheckType(channel, [CHANNEL_TYPE.CHANNEL_PRIVATE]);
     this.channelCheckParticipant(channel, body.participantId, false);
 
     channel.participants.push(body.participantId);
+    const details: any = {
+      id: body.participantId,
+      unread: 0,
+      notificationIds: userDetails.notificationIds,
+    };
+    channel.participantsDetails.push(details);
     await channel.save();
     await this.channelUpdateListener(channel._id, EVENT_TYPE.UPDATE);
     return channel;
@@ -395,13 +465,19 @@ export class ChatService {
     channel.participants = channel.participants.filter(
       (item) => item != body.participantId,
     );
+    const index = channel.participantsDetails.findIndex(
+      (item: any) => item.id === body.participantId,
+    );
+    channel.participantsDetails.splice(index, 1);
+    // channel.participantsDetails = channel.participantsDetails.filter(
+    //   (item) => item.id != body.participantId,
+    // );
     const searchFilter = {
       _id: channel._id,
     };
     await channel.save();
     const aggregatedChannel = await this.channelAggregator(searchFilter);
-    this.chatGateway.channelDelete(body.participantId, aggregatedChannel[0]);
-    // this.chatGateway.channelDelete(body.participantId, channel);
+    this.chatGateway.channelDelete([body.participantId], aggregatedChannel[0]);
     return aggregatedChannel[0];
   }
 
@@ -456,13 +532,42 @@ export class ChatService {
     return messages;
   }
 
-  async channelMessageAdd(body: CHMessageAddDto, req: any) {
+  async channelMessageAdd(body: CHMessageAddDto, req: any, attachments) {
     const { user } = req;
     const channel = await this.channelModel.findById(body.channelId);
 
-    // Only participant can add message except in public channel.
+    if (!attachments.length && !body.content.trim().length) {
+      throw new HttpException(
+        'Either content or image should be there',
+        HttpStatus.NOT_ACCEPTABLE,
+      );
+    }
+
+    if (!channel) {
+      throw new HttpException('Channel not found', 401);
+    }
     if (channel.type !== CHANNEL_TYPE.CHANNEL_PUBLIC)
+      // Only participant can add message except in public channel.
       this.channelCheckParticipant(channel, user.userId, true);
+
+    const attachmentsArr = [];
+    if (attachments) {
+      const details = {
+        accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
+        secretAccessKey: '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',
+        bucketName: 'kitchat-bucket',
+        region: 'ap-south-1',
+      };
+      for (let index = 0; index < attachments.length; index++) {
+        attachmentsArr.push(
+          await this.utilsService.uploadFileS3(
+            attachments[index],
+            'messages',
+            details,
+          ),
+        );
+      }
+    }
 
     const message = new this.msgModel({
       sender: user.userId,
@@ -470,6 +575,7 @@ export class ChatService {
       createdAt: new Date(),
       channelId: body.channelId,
       appId: user.appId,
+      attachments: attachmentsArr,
     });
 
     // appId:'6270d77c6d1932f0bd9035e6'
@@ -483,10 +589,8 @@ export class ChatService {
     // userLastName:'Purohit'
     // userReferenceId:'necixy@hotmail.com'
 
-    await this.channelUnreadCountUpdate(channel, req.user);
-
     const result = await message.save();
-    this.chatGateway.messageSent(body.channelId, {
+    const messageToSend = {
       ...result['_doc'],
       sender_data: {
         _id: user.userId,
@@ -497,14 +601,125 @@ export class ChatService {
         firstName: user.userFirstName,
         lastName: user.userLastName,
       },
-    });
+    };
+    this.chatGateway.messageListener(body.channelId, messageToSend, 'ADDED');
+
+    const { updatedChannel } = await this.channelUnreadCountUpdate(
+      channel,
+      req.user,
+    );
     const content = {
       message: message.content,
     };
-    const userPlayerIds = [];
-    this.notifyService.sendNotification({ en: content.message }, userPlayerIds);
+    let userPlayerIds = [];
+    if (channel.type !== CHANNEL_TYPE.CHANNEL_PUBLIC) {
+      updatedChannel.participantsDetails.forEach((el: any) => {
+        if (!updatedChannel.mutedMembers.includes(String(el.id))) {
+          if (el.id !== user.userId) {
+            if (el.notificationIds) {
+              Object.keys(el.notificationIds).forEach((elNew) => {
+                userPlayerIds.push(el.notificationIds[elNew].pId);
+              });
+            }
+          }
+        }
+      });
+    } else {
+      const getAllUsers = await this.UserModule.find({
+        $and: [
+          { teamId: channel.teamId },
+          { _id: { $ne: [user.userId, ...updatedChannel.mutedMembers] } },
+        ],
+      }).exec();
+      getAllUsers.forEach((el) => {
+        if (el.notificationIds) {
+          const ids = Object.keys(el.notificationIds).map(
+            (elNew) => el.notificationIds[elNew].pId,
+          );
+          userPlayerIds = [...userPlayerIds, ...ids];
+        }
+      });
+    }
+
+    userPlayerIds.length &&
+      this.notifyService.sendNotification(
+        { en: content.message },
+        userPlayerIds,
+      );
 
     return result;
+  }
+
+  async channelMessageUpdate(body: CHMessageUpdateDto, req: any) {
+    try {
+      const { user } = req;
+      const { channelId, content, messageId } = body;
+      const updateMessage = await this.msgModel.updateOne(
+        {
+          _id: messageId,
+          channelId,
+          sender: user.userId,
+        },
+        { content, isEdited: true },
+        {
+          new: true,
+        },
+      );
+      if (updateMessage.matchedCount === 0) {
+        throw new HttpException('Message not found', 401);
+      } else if (updateMessage.modifiedCount === 0) {
+        throw new HttpException('Message not updated', 401);
+      } else {
+        const messageToSend = {
+          content,
+          isEdited: true,
+          sender: user._id,
+          channelId,
+        };
+
+        this.chatGateway.messageListener(
+          channelId,
+          { _id: messageId, ...messageToSend },
+          'UPDATE',
+        );
+        return {
+          message: 'Message update Successfully',
+          data: { message: messageToSend },
+        };
+      }
+    } catch (error) {
+      console.error('error at channelMessageUpdate:', error);
+      throw new HttpException('ERROR: Message not updated', 401);
+    }
+  }
+
+  async channelMessageDelete(channelId: string, messageId: string, req: any) {
+    try {
+      const { user } = req;
+      const deletedMessage = await this.msgModel.deleteOne({
+        sender: user.userId,
+        _id: messageId,
+      });
+      if (deletedMessage.deletedCount !== 0) {
+        this.chatGateway.messageListener(
+          channelId,
+          { _id: messageId, channelId },
+          'DELETE',
+        );
+        return { message: 'Message deleted successfully' };
+      } else {
+        throw new HttpException(
+          'Either Message not found or you are not authorized to perform this action',
+          401,
+        );
+      }
+    } catch (error) {
+      console.error('error', error);
+      throw new HttpException(
+        'Either Message not found or you are not authorized to perform this action',
+        401,
+      );
+    }
   }
 
   async channelMessageRemove(body: CHMessageRemoveDto, req: any) {
@@ -532,7 +747,12 @@ export class ChatService {
 
     if (tempChannel?.participantsDetails?.length > 0) {
       tempChannel.participantsDetails.forEach((el: any) => {
-        el.unread = el.id == user.userId ? 0 : (el.unread += 1);
+        if (el.id == user.userId) {
+          el.unread = 0;
+        } else {
+          el.unread = el.unread += 1;
+        }
+        // el.unread = el.id == user.userId ? 0 : (el.unread += 1);
       });
     } else {
       const tempDetails = tempChannel.participants.map((id) => ({
@@ -541,8 +761,11 @@ export class ChatService {
       }));
       tempChannel.participantsDetails = tempDetails;
     }
-
-    const updatedChannel = await channel.update(tempChannel);
+    // const updatedChannel = await tempChannel.save();
+    const updatedChannel: any = await this.channelModel
+      .findByIdAndUpdate({ _id: tempChannel._id }, tempChannel, { lean: true })
+      .exec();
+    // const updatedChannel = await channel.update(tempChannel).exec();
 
     const receivers = [];
 
@@ -557,11 +780,13 @@ export class ChatService {
       participantsDetails: tempChannel.participantsDetails,
     };
 
-    this.chatGateway.channelListListener(
-      channelToSend,
-      EVENT_TYPE.COUNT,
-      receivers,
-    );
+    if (receivers.length) {
+      this.chatGateway.channelListListener(
+        channelToSend,
+        EVENT_TYPE.COUNT,
+        receivers,
+      );
+    }
 
     return { updatedChannel, receivers };
 
@@ -569,32 +794,67 @@ export class ChatService {
   }
 
   async readMessage(body: ChMessageDto, req: any) {
-    const { channelId } = body;
+    try {
+      const { channelId } = body;
 
-    const { user } = req;
-    const channel = await this.channelModel.findById(channelId);
-    if (channel.type !== CHANNEL_TYPE.CHANNEL_PUBLIC)
-      this.channelCheckParticipant(channel, user.userId, true);
+      const { user } = req;
+      const channel = await this.channelModel.findById(channelId);
+      if (channel.type !== CHANNEL_TYPE.CHANNEL_PUBLIC)
+        this.channelCheckParticipant(channel, user.userId, true);
 
-    const tempChannel = channel;
+      const tempChannel = channel;
 
-    if (tempChannel?.participantsDetails?.length > 0) {
-      tempChannel.participantsDetails.forEach((el: any) => {
-        if (el.id == user.userId) {
-          el.unread = 0;
-        }
-      });
+      if (tempChannel?.participantsDetails?.length > 0) {
+        tempChannel.participantsDetails.forEach((el: any) => {
+          if (el.id == user.userId) {
+            el.unread = 0;
+          }
+        });
+      }
+      const updatedChannel = await channel.update(tempChannel);
+      const receivers = [{ id: user.userId }];
+      this.chatGateway.channelListListener(
+        tempChannel,
+        EVENT_TYPE.COUNT,
+        receivers,
+      );
+      // this.chatGateway.channelListListener(updatedChannel, EVENT_TYPE.COUNT);
+      // this.channelUpdateListener(channel._id, EVENT_TYPE.UPDATE, receivers);
+
+      return updatedChannel;
+    } catch (error) {
+      console.error('error', error);
+      throw new ForbiddenException();
     }
-    const updatedChannel = await channel.update(tempChannel);
-    const receivers = [{ id: user.userId }];
-    this.chatGateway.channelListListener(
-      tempChannel,
-      EVENT_TYPE.COUNT,
-      receivers,
-    );
-    // this.chatGateway.channelListListener(updatedChannel, EVENT_TYPE.COUNT);
-    // this.channelUpdateListener(channel._id, EVENT_TYPE.UPDATE, receivers);
+  }
 
-    return updatedChannel;
+  async uploadAttachments(body: CHUploadAttachments, req: any) {
+    try {
+      const { attachments } = body;
+
+      const details = {
+        accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
+        secretAccessKey: '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',
+        bucketName: 'kitchat-bucket',
+        region: 'ap-south-1',
+      };
+
+      const attachmentsArr = [];
+      if (attachments) {
+        for (let index = 0; index < attachments.length; index++) {
+          attachmentsArr.push(
+            await this.utilsService.uploadFileS3(
+              attachments[index],
+              'messages',
+              details,
+            ),
+          );
+        }
+      }
+      return attachmentsArr;
+    } catch (error) {
+      console.error('error', error);
+      throw new ForbiddenException();
+    }
   }
 }

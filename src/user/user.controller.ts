@@ -24,4 +24,9 @@ export class UserController {
   async getAllUsers(@Request() req, @Param('teamId') teamId) {
     return this.userSvc.getAllUsers(req, teamId);
   }
+  @Get('currentChannel/:channelId')
+  @UseGuards(ChatAuthGuard)
+  async setCurrentChannel(@Request() req, @Param('channelId') channelId) {
+    return this.userSvc.setUserCurrentChannel(req, channelId);
+  }
 }

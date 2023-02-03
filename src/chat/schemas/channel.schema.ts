@@ -24,6 +24,9 @@ export class Channel {
   @Prop({ required: true, default: [] })
   admins: string[];
 
+  @Prop({ required: true, default: [] })
+  mutedMembers: string[];
+
   @Prop({})
   teamId: string;
 
@@ -50,7 +53,7 @@ export class Channel {
   createdAt: Date;
 
   @Prop({ required: true, default: [] })
-  participantsDetails: any[];
+  participantsDetails: [MongooseSchema.Types.Mixed];
 }
 
 export const ChannelSchema = SchemaFactory.createForClass(Channel);

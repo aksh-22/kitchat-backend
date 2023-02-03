@@ -10,7 +10,7 @@ export class ConnectUserDto {
   @IsNotEmpty()
   firstName: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   lastName: string;
 
   @IsOptional()

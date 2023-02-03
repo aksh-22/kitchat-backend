@@ -14,11 +14,14 @@ import { ConfigService } from '@nestjs/config';
 import { UserModule } from '../user/user.module';
 import { ChatGateway } from './chat.gateway';
 import { NotificationModule } from 'src/notification/notification.module';
+import { User, UserSchema } from 'src/user/schemas/user.schema';
+import { UtilsModule } from 'src/utils/utils.module';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Channel.name, schema: ChannelSchema }]),
     MongooseModule.forFeature([{ name: Message.name, schema: MessageSchema }]),
+    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
     MongooseModule.forFeature([
       { name: 'Notification', schema: NotificationSchema },
     ]),
@@ -35,6 +38,7 @@ import { NotificationModule } from 'src/notification/notification.module';
       inject: [ConfigService],
     }),
     UserModule,
+    UtilsModule,
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatJwtStrategy, ChatGateway],

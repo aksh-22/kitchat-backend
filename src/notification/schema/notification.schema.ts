@@ -6,10 +6,7 @@ export type NotificationDocument = Notification & Document;
 @Schema()
 export class Notification {
   @Prop({ isRequired: true })
-  title: string;
-
-  @Prop({ isRequired: true })
-  message: string;
+  channelId: string;
 
   @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User', isRequired: true })
   senderId: string;

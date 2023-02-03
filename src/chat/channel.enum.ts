@@ -17,6 +17,8 @@ export enum EVENT_TYPE {
   COUNT = 'COUNT',
 }
 
+export type eventType = 'ADDED' | 'UPDATE' | 'DELETE';
+
 export enum EVENT_TYPE_ENUM {
   CHANNEL_CHANGE = 'CHANNEL_CHANGE',
   MESSAGE_COUNT_CHANGE = 'MESSAGE_COUNT_CHANGE',
