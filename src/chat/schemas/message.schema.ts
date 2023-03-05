@@ -5,6 +5,15 @@ import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 export type MessageDocument = Message & Document;
 
 @Schema()
+class Attachment {
+  @Prop()
+  original: string;
+
+  @Prop()
+  thumbnail: string;
+}
+
+@Schema()
 export class Message {
   @Prop({
     type: MongooseSchema.Types.ObjectId,
@@ -38,7 +47,7 @@ export class Message {
 
   @Prop({ default: [] })
   @IsOptional()
-  attachments: string[];
+  attachments: [Attachment];
 }
 
 export const MessageSchema = SchemaFactory.createForClass(Message);

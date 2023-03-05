@@ -25,6 +25,7 @@ import { ChMessageDto } from './dto/cha-message.dto';
 import { CHMessageUpdateDto } from './dto/ch-msg-update.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { CHUploadAttachments } from './dto/upload-attachments.dto';
+import { ChDeleteAttachment } from './dto/delete-attachments.dto';
 
 @Controller('chat')
 export class ChatController {
@@ -120,24 +121,8 @@ export class ChatController {
 
   @Post('channel/message/add')
   @UseGuards(ChatAuthGuard)
-  @UseInterceptors(
-    FilesInterceptor('attachments', 5, {
-      // fileFilter: (req, attachments, cb) => {
-      //   if (!attachments.originalname.match(/\.(jpeg|peg|png|gif|jpg)$/)) {
-      //     cb(new Error('File Format not Supported...!!!'), false);
-      //   } else {
-      //     cb(null, true);
-      //   }
-      // },
-      limits: { fileSize: 10 * 1000 * 1000 },
-    }),
-  )
-  async channelMessageAdd(
-    @Body() body: CHMessageAddDto,
-    @Request() req,
-    @UploadedFiles() attachments,
-  ) {
-    return this.chatSvc.channelMessageAdd(body, req, attachments);
+  async channelMessageAdd(@Body() body: CHMessageAddDto, @Request() req) {
+    return this.chatSvc.channelMessageAdd(body, req);
   }
 
   @Post('channel/message/remove')
@@ -168,7 +153,7 @@ export class ChatController {
     return this.chatSvc.readMessage(body, req);
   }
 
-  @Post('channel/message/upload/attachment')
+  @Post('channel/message/upload/attachment/:channelId')
   @UseGuards(ChatAuthGuard)
   @UseInterceptors(
     FilesInterceptor('attachments', 5, {
@@ -183,10 +168,19 @@ export class ChatController {
     }),
   )
   async uploadAttachments(
-    @Body() body: CHUploadAttachments,
-    @Request() req,
+    @Param('channelId') channelId,
     @UploadedFiles() attachments,
   ) {
-    return this.chatSvc.uploadAttachments({ attachments }, req);
+    console.log('attachments', attachments);
+    return this.chatSvc.uploadAttachments(channelId, attachments);
+  }
+
+  @Post('channel/message/remove/attachment/:channelId')
+  @UseGuards(ChatAuthGuard)
+  async deleteAttachments(
+    @Param('channelId') channelId,
+    @Body() body: ChDeleteAttachment,
+  ) {
+    return this.chatSvc.deleteAttachments(channelId, body.url);
   }
 }

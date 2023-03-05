@@ -111,6 +111,18 @@ export class ChatGateway
         this.server.to(`CHANNEL-${channelId}`).emit('MESSAGE_UPDATE', message);
         break;
 
+      case 'ATTACHMENT_ADD':
+        this.server
+          .to(`CHANNEL-${channelId}`)
+          .emit('ATTACHMENT_ADD', { channelId, attachments: message });
+        break;
+
+      case 'ATTACHMENT_REMOVE':
+        this.server
+          .to(`CHANNEL-${channelId}`)
+          .emit('ATTACHMENT_REMOVE', { channelId, attachments: message });
+        break;
+
       default:
         break;
     }

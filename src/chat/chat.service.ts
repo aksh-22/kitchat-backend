@@ -11,6 +11,7 @@ import { Channel, ChannelDocument } from './schemas/channel.schema';
 
 import { I18nService } from 'nestjs-i18n';
 import { NotificationService } from 'src/notification/notification.service';
+import { UtilsService } from 'src/utils/utils.service';
 import { UserService } from '../user/user.service';
 import { EVENT_TYPE } from './channel.enum';
 import { ChatGateway } from './chat.gateway';
@@ -23,10 +24,8 @@ import { CHMessageUpdateDto } from './dto/ch-msg-update.dto';
 import { CHParticipantAddDto } from './dto/ch-participant-add.dto';
 import { CHPatchDto } from './dto/ch-patch.dto';
 import { ChMessageDto } from './dto/cha-message.dto';
-import { Message, MessageDocument } from './schemas/message.schema';
-import { UtilsService } from 'src/utils/utils.service';
-import * as imageThumbnail from 'image-thumbnail';
 import { CHUploadAttachments } from './dto/upload-attachments.dto';
+import { Message, MessageDocument } from './schemas/message.schema';
 
 const CHANNEL_TYPE = {
   DIRECT: 'DIRECT',
@@ -90,6 +89,7 @@ export class ChatService {
             createdAt: 1,
             participantsDetails: 1,
             mutedMembers: 1,
+            attachments: 1,
           },
         },
         {
@@ -532,11 +532,11 @@ export class ChatService {
     return messages;
   }
 
-  async channelMessageAdd(body: CHMessageAddDto, req: any, attachments) {
+  async channelMessageAdd(body: CHMessageAddDto, req: any) {
     const { user } = req;
     const channel = await this.channelModel.findById(body.channelId);
 
-    if (!attachments.length && !body.content.trim().length) {
+    if (!body?.attachments?.length && !body.content.trim().length) {
       throw new HttpException(
         'Either content or image should be there',
         HttpStatus.NOT_ACCEPTABLE,
@@ -550,24 +550,24 @@ export class ChatService {
       // Only participant can add message except in public channel.
       this.channelCheckParticipant(channel, user.userId, true);
 
-    const attachmentsArr = [];
-    if (attachments) {
-      const details = {
-        accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
-        secretAccessKey: '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',
-        bucketName: 'kitchat-bucket',
-        region: 'ap-south-1',
-      };
-      for (let index = 0; index < attachments.length; index++) {
-        attachmentsArr.push(
-          await this.utilsService.uploadFileS3(
-            attachments[index],
-            'messages',
-            details,
-          ),
-        );
-      }
-    }
+    const attachmentsArr = body.attachments;
+    // if (attachments) {
+    //   const details = {
+    //     accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
+    //     secretAccessKey: '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',
+    //     bucketName: 'kitchat-bucket',
+    //     region: 'ap-south-1',
+    //   };
+    //   for (let index = 0; index < attachments.length; index++) {
+    //     attachmentsArr.push(
+    //       await this.utilsService.uploadFileS3(
+    //         attachments[index],
+    //         'messages',
+    //         details,
+    //       ),
+    //     );
+    //   }
+    // }
 
     const message = new this.msgModel({
       sender: user.userId,
@@ -590,6 +590,7 @@ export class ChatService {
     // userReferenceId:'necixy@hotmail.com'
 
     const result = await message.save();
+    channel.attachments.splice(0, channel.attachments.length);
     const messageToSend = {
       ...result['_doc'],
       sender_data: {
@@ -603,6 +604,7 @@ export class ChatService {
       },
     };
     this.chatGateway.messageListener(body.channelId, messageToSend, 'ADDED');
+    this.chatGateway.messageListener(body.channelId, null, 'ATTACHMENT_REMOVE');
 
     const { updatedChannel } = await this.channelUnreadCountUpdate(
       channel,
@@ -828,10 +830,36 @@ export class ChatService {
     }
   }
 
-  async uploadAttachments(body: CHUploadAttachments, req: any) {
+  async deleteAttachments(channelId, url) {
     try {
-      const { attachments } = body;
+      const details = {
+        accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
+        secretAccessKey: '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',
+        bucketName: 'kitchat-bucket',
+        region: 'ap-south-1',
+      };
 
+      await this.utilsService.deleteFileS3(
+        url,
+        `messages-${channelId}`,
+        details,
+      );
+
+      const channel = await this.channelModel.findById(channelId);
+      const index = channel.attachments.findIndex((el) => el.original === url);
+      channel.attachments.splice(index, 1);
+      await channel.save();
+      this.chatGateway.messageListener(channelId, url, 'ATTACHMENT_REMOVE');
+      // this.chatGateway.messageListener(channelId, attachmentsArr, 'ATTACHMENT');
+      return { message: 'attachment removed' };
+    } catch (error) {
+      console.error('error', error);
+      throw new ForbiddenException();
+    }
+  }
+
+  async uploadAttachments(channelId, attachments) {
+    try {
       const details = {
         accessKeyId: 'AKIAXY2LMJZNXKJLIUZU',
         secretAccessKey: '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',
@@ -845,12 +873,20 @@ export class ChatService {
           attachmentsArr.push(
             await this.utilsService.uploadFileS3(
               attachments[index],
-              'messages',
+              `messages-${channelId}`,
               details,
             ),
           );
         }
       }
+      const channel = await this.channelModel.findById(channelId);
+      channel.attachments.push(...attachmentsArr);
+      await channel.save();
+      this.chatGateway.messageListener(
+        channelId,
+        attachmentsArr,
+        'ATTACHMENT_ADD',
+      );
       return attachmentsArr;
     } catch (error) {
       console.error('error', error);

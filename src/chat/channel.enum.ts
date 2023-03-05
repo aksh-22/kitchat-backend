@@ -17,7 +17,12 @@ export enum EVENT_TYPE {
   COUNT = 'COUNT',
 }
 
-export type eventType = 'ADDED' | 'UPDATE' | 'DELETE';
+export type eventType =
+  | 'ADDED'
+  | 'UPDATE'
+  | 'DELETE'
+  | 'ATTACHMENT_ADD'
+  | 'ATTACHMENT_REMOVE';
 
 export enum EVENT_TYPE_ENUM {
   CHANNEL_CHANGE = 'CHANNEL_CHANGE',

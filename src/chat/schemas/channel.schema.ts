@@ -1,7 +1,17 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { IsOptional } from 'class-validator';
 import { Document, Schema as MongooseSchema, Types } from 'mongoose';
 
 export type ChannelDocument = Channel & Document;
+
+@Schema()
+class Attachment {
+  @Prop()
+  original: string;
+
+  @Prop()
+  thumbnail: string;
+}
 
 @Schema()
 export class Channel {
@@ -54,6 +64,10 @@ export class Channel {
 
   @Prop({ required: true, default: [] })
   participantsDetails: [MongooseSchema.Types.Mixed];
+
+  @Prop({ default: [], required: false })
+  @IsOptional()
+  attachments: [Attachment];
 }
 
 export const ChannelSchema = SchemaFactory.createForClass(Channel);
